@@ -3,14 +3,16 @@
 //
 // Paddle inference data reader
 
-#include "data/reader.h"
+#include "debug_reader.h"
 #include <paddle_inference_api.h>
 #include <algorithm>
 #include <boost/endian/conversion.hpp>
 #include <functional>
+#include <iterator>
 
 namespace paddle {
 namespace debug {
+
 Reader::Reader(const std::string &filename)
     : file_(filename, std::ios::binary) {
   Init();
@@ -85,6 +87,18 @@ bool Reader::NextBatch() {
     tensor->data.Resize(data_buf.data.size());
     std::copy(data_buf.data.begin(), data_buf.data.end(),
               static_cast<char *>(tensor->data.data()));
+
+    auto size = tensor->data.length() / data_byte;
+    if (tensor->dtype == PaddleDType::FLOAT32) {
+      auto *data = static_cast<float *>(tensor->data.data());
+      big_to_native(data, data + size);
+    } else if (tensor->dtype == PaddleDType::INT64) {
+      auto *data = static_cast<int64_t *>(tensor->data.data());
+      big_to_native(data, data + size);
+    } else if (tensor->dtype == PaddleDType::INT32) {
+      auto *data = static_cast<int32_t *>(tensor->data.data());
+      big_to_native(data, data + size);
+    }
 
     for (auto &item : data_buf.lod) {
       std::partial_sum(item.begin(), item.end(), item.begin(),
