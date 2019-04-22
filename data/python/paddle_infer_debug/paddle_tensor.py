@@ -92,7 +92,6 @@ class Tensor(Package):
         return str(self)
 
     def __add_lod(self, lod):
-        self._buffer.write_size(lod)
         for v in lod:
             self._buffer.write_list(v, dtype='size_t')
 
@@ -105,8 +104,8 @@ class Unpacking(object):
         self._buffer = buffer
         self._offset = 0
         self._dtypes = []
-        self._levels= []
-        self.num_package = -1
+        self._levels = []
+        #self.num_package = -1
         self._i_package = 0
         self.num_info = self._get_size()
         self._i_info = 0
@@ -139,8 +138,8 @@ class Unpacking(object):
         lod_level = self.__get('!i')
         self._dtypes.append(dtype)
         self._levels.append(lod_level)
-        if self._i_info == self.num_info:
-            self.num_package = self._get_size()
+        #if self._i_info == self.num_info:
+        #    self.num_package = self._get_size()
         return TensorInfo(name, shape, dtype, lod_level, need_persist=False)
 
     def get_tensor(self):

@@ -27,15 +27,19 @@ class TestTensor(unittest.TestCase):
                 return self.data
 
         num_inputs = NumberPackage(2, '!Q')
-        num_sample = NumberPackage(2, '!Q')
         package = [
-            _.pack() for _ in
-            [num_inputs, self.x_info, self.y_info, num_sample, self.x, self.y]
+            _.pack()
+            for _ in [num_inputs, self.x_info, self.y_info, self.x, self.y]
         ]
         self.data = Unpacking(six.b("").join(package))
 
-        self.unpack_infos = [self.data.get_tensor_info() for i in range(self.data.num_info)]
-        self.unpack_tensors = [self.data.get_tensor() for i in range(self.data.num_package)]
+        self.unpack_infos = [
+            self.data.get_tensor_info() for i in range(self.data.num_info)
+        ]
+        num_sample = 2
+        self.unpack_tensors = [
+            self.data.get_tensor() for i in range(num_sample)
+        ]
 
     def test_tensor_info(self):
         infos = [self.x_info, self.y_info]
@@ -51,11 +55,13 @@ class TestTensor(unittest.TestCase):
         self.assertEqual(len(tensors), len(self.unpack_tensors))
         for t, u in zip(tensors, self.unpack_tensors):
             self.assertEqual(t.dtype, u.dtype)
-            print(t, u)
             self.assertEqual(t.lod, u.lod)
-            #self.assertEqual()
-        #print(self.x_unpack)
-        #print(self.y_unpack)
+            if t.dtype == 'float32':
+                self.assertEqual(len(t.data), len(u.data))
+                for a, b in zip(t.data, u.data):
+                    self.assertAlmostEqual(a, b, 6)
+            else:
+                self.assertEqual(t.data, u.data)
 
 
 if __name__ == "__main__":
