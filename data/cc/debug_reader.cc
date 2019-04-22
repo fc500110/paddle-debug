@@ -19,7 +19,7 @@ Reader::Reader(const std::string &filename)
 }
 
 void Reader::Init() {
-  int num_inputs{0};
+  size_t num_inputs{0};
   Read(&num_inputs);
 
   inputs_.resize(num_inputs);
@@ -74,7 +74,7 @@ bool Reader::NextBatch() {
       }
 
       // raw data
-      int length;
+      size_t length;
       Read(&length);
       std::copy_n(std::istream_iterator<char>(file_), length * data_byte,
                   std::back_inserter(buffer[j].data));

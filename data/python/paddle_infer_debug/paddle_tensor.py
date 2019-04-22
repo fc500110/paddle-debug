@@ -116,7 +116,7 @@ class Unpacking(object):
         return value
 
     def _get_str(self):
-        size = self.__get("!I")
+        size = self.__get("!i")
         value = self.__get("!{}s".format(size)).decode('utf-8')
         return value
 

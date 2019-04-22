@@ -7,6 +7,7 @@
 
 #include <paddle_inference_api.h>
 #include <boost/endian/conversion.hpp>
+#include <algorithm>
 #include <fsteram>
 #include <string>
 #include <vector>
@@ -23,6 +24,7 @@ static void GetPaddleDType(const std::string &name, PaddleDType *dtype);
 class Reader {
  public:
   explicit Reader(const std::string &filename);
+  explicit Reader(std::istream &&in);
   Reader() = delete;
   Reader(const Reader &) = delete;
   Reader &operator=(const Reader &) = delete;
@@ -61,7 +63,7 @@ void Reader::Read(std::string *data) {
 
 template <typename T>
 void Reader::Read(std::vector<T> *data) {
-  int size{0};
+  size_t size{0};
   Read(&size);
 
   data->assign(size, T{});
@@ -72,7 +74,7 @@ void Reader::Read(std::vector<T> *data) {
 
 template <typename T>
 void Reader::Read(std::vector<std::vector<T>> *data) {
-  int size{0};
+  size_t size{0};
   Read(&size);
   data->assign(size, std::vector<T>());
   for (auto &v : *data) {
