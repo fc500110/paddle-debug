@@ -6,11 +6,13 @@
 #pragma once
 
 #include <paddle_inference_api.h>
-#include <boost/endian/conversion.hpp>
 #include <algorithm>
-#include <fsteram>
+#include <boost/endian/conversion.hpp>
+#include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
+#include "debug_helper.h"
 
 namespace paddle {
 namespace debug {
@@ -19,13 +21,12 @@ using paddle::PaddleBuf;
 using paddle::PaddleDType;
 using paddle::PaddleTensor;
 
-static void GetPaddleDType(const std::string &name, PaddleDType *dtype);
+void GetPaddleDType(const std::string &name, PaddleDType *dtype);
 
 class Reader {
  public:
+  explicit Reader(std::unique_ptr<std::istream> stream);
   explicit Reader(const std::string &filename);
-  explicit Reader(std::istream &&in);
-  Reader() = delete;
   Reader(const Reader &) = delete;
   Reader &operator=(const Reader &) = delete;
 
@@ -35,80 +36,75 @@ class Reader {
   const std::vector<PaddleTensor> &batch() const noexcept { return inputs_; }
 
  private:
+  Reader();
+  class Impl;
+
   template <typename T>
-  void Read(T *data);
+  void Get(T *data) {
+    Read(stream_.get(), data);
+  }
+
+  // template <>
+  // void Read(std::string *data);
+
+  // template <typename T>
+  // void Read(std::vector<T> *);
+
+  // template <typename T>
+  // void Read(std::vector<std::vector<T>> *);
 
   void ResetBatchData() noexcept;
 
-  std::ifstream file_;
   int batch_size_{1};
+
+  // std::istream stream_;
+  std::unique_ptr<std::istream> stream_;
 
   std::vector<PaddleTensor> inputs_;
   std::vector<int> levels_;
 };
 
-template <typename T>
-void Reader::Read(T *data) {
-  file_.read(reinterpret_cast<char *>(data), sizeof(T));
-  *data = boost::endian::big_to_native(*data);
-}
-
-template <>
-void Reader::Read(std::string *data) {
-  int size{0};
-  Read(&size);
-  data->assign(size, '\0');
-  file_.read(&data->front(), size);
-}
-
-template <typename T>
-void Reader::Read(std::vector<T> *data) {
-  size_t size{0};
-  Read(&size);
-
-  data->assign(size, T{});
-  for (auto &v : *data) {
-    Read<T>(&v);
-  }
-}
-
-template <typename T>
-void Reader::Read(std::vector<std::vector<T>> *data) {
-  size_t size{0};
-  Read(&size);
-  data->assign(size, std::vector<T>());
-  for (auto &v : *data) {
-    Read(&v);
-  }
-}
-
-template <>
-void Reader::Read(PaddleDType *data) {
-  std::string name;
-  Read(&name);
-  GetPaddleDType(name, data);
-}
-
-void Reader::Init() {
-  int num_inputs{0};
-  Read(&num_inputs);
-
-  inputs_.resize(num_inputs);
-  levels_.resize(num_inputs);
-  for (int i = 0; i < num_inputs; i++) {
-    PaddleTensor *tensor = inputs_[i];
-    Read(&tensor->name);
-    Read(&tensor->shape);
-    Read(&tensor->dtype);
-    Read(&levels_[i]);
-  }
-}
-
-template <typename Iter>
-void big_to_native(Iter begin, Iter end) {
-  using value_type = std::iterator_trits<Iter>::value_type;
-  std::transform(begin, end, begin, boost::endian::beg_to_native<value_type>);
-}
+// template <typename T>
+// void Reader::Read(T *data) {
+//  file_.read(reinterpret_cast<char *>(data), sizeof(T));
+//  *data = boost::endian::big_to_native(*data);
+//}
+//
+// template <>
+// void Reader::Read(std::string *data) {
+//  int size{0};
+//  Read(&size);
+//  data->assign(size, '\0');
+//  file_.read(&data->front(), size);
+//}
+//
+// template <typename T>
+// void Reader::Read(std::vector<T> *data) {
+//  size_t size{0};
+//  Read(&size);
+//
+//  data->assign(size, T{});
+//  for (auto &v : *data) {
+//    Read<T>(&v);
+//  }
+//}
+//
+// template <typename T>
+// void Reader::Read(std::vector<std::vector<T>> *data) {
+//  size_t size{0};
+//  Read(&size);
+//  data->assign(size, std::vector<T>());
+//  for (auto &v : *data) {
+//    Read<std::vector<T>>(&v);
+//  }
+//}
+//
+// template <>
+// void Reader::Read(PaddleDType *data) {
+//  std::string name;
+//  Read(&name);
+//  GetPaddleDType(name, data);
+//}
 
 }  // namespace debug
 }  // namespace paddle
