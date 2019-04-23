@@ -41,7 +41,8 @@ template <typename T>
 void Read(std::istream *stream, std::vector<T> *data) {
   size_t size{0};
   Read(stream, &size);
-  data->assign(size, T{});
+  data->clear();
+  data->assign(size, T());
   for (auto &v : *data) {
     Read(stream, &v);
   }
@@ -51,6 +52,7 @@ template <typename T>
 void Read(std::istream *stream, std::vector<std::vector<T>> *data) {
   size_t size{0};
   Read(stream, &size);
+  data->clear();
   data->assign(size, std::vector<T>());
   for (auto &v : *data) {
     Read(stream, &v);

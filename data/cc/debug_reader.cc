@@ -38,8 +38,8 @@ void Reader::Init() {
 void Reader::ResetBatchData() noexcept {
   for (int i = 0; i < inputs_.size(); i++) {
     inputs_[i].lod.clear();
-    inputs_[i].lod = {static_cast<size_t>(levels_[i]),
-                      std::vector<size_t>({0})};
+    // inputs_[i].lod = {static_cast<size_t>(levels_[i]),
+    //                  std::vector<size_t>({0})};
   }
 }
 
@@ -68,6 +68,7 @@ bool Reader::NextBatch() {
     for (int j = 0; j < inputs_.size(); j++) {
       // LoD
       for (int k = 0; k < levels_[j]; k++) {
+        pos.clear();
         Get(&pos);
         std::copy(pos.begin(), pos.end(), std::back_inserter(buffer[j].lod[k]));
       }
@@ -97,13 +98,10 @@ bool Reader::NextBatch() {
       transform_big_to_native(data, data + size);
     }
 
-    // for (auto it = data_buf.lod.begin(); it != data_buf.lod.end(); ++it) {
-    //  std::partial_sum(it->begin(), it->end(), it->begin(),
-    //                   std::plus<size_t>());
-    //}
     for (auto &item : data_buf.lod) {
       std::partial_sum(item.begin(), item.end(), item.begin(),
                        std::plus<size_t>());
+      tensor->lod.push_back(item);
     }
   }
 

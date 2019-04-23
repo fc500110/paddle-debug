@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 #include <boost/filesystem.hpp>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <random>
 #include <sstream>
@@ -43,7 +44,7 @@ void Write(float v, std::ostream *os) {
 template <typename T>
 void Write(std::vector<T> v, std::ostream *os) {
   size_t size = v.size();
-  size = boost::endian::native_to_big(size);
+  boost::endian::native_to_big_inplace(size);
   os->write(reinterpret_cast<char *>(&size), sizeof(size));
   std::for_each(v.begin(), v.end(), [os](T &item) { Write(item, os); });
 }
@@ -94,8 +95,8 @@ class TensorData : public Package {
              const std::vector<std::vector<size_t>> &lod)
       : data_(data), lod_(lod) {}
   void Pack(std::ostream *os) override {
-    Write(data_, os);
     if (!lod_.empty()) Write(lod_, os);
+    Write(data_, os);
   }
   const std::vector<T> &data() const { return data_; }
   const std::vector<std::vector<size_t>> &lod() const { return lod_; }
@@ -185,13 +186,14 @@ TEST_F(ReaderTest, test_get_batch_data) {
 
   for (size_t i = 0; i < data.size(); i++) {
     const auto &tensor = data[i];
+    std::vector<std::vector<size_t>> lod;
     if (tensor.dtype == paddle::PaddleDType::INT64) {
       auto original =
           std::dynamic_pointer_cast<TensorData<int64_t>>(data_[i + num_info_]);
       auto *data = static_cast<int64_t *>(tensor.data.data());
       auto size = tensor.data.length() / sizeof(int64_t);
       ASSERT_THAT(original->data(), ::testing::ElementsAreArray(data, size));
-
+      lod = original->lod();
     } else if (tensor.dtype == paddle::PaddleDType::FLOAT32) {
       auto original =
           std::dynamic_pointer_cast<TensorData<float>>(data_[i + num_info_]);
@@ -200,9 +202,18 @@ TEST_F(ReaderTest, test_get_batch_data) {
       for (int j = 0; j < size; j++) {
         ASSERT_NEAR(data[j], original->data()[j], 1e-5);
       }
-      // ASSERT_THAT(original->data(), ::testing::ElementsAreArray(data, size));
-      // EXPECT_THAT(origin->data(),
-      // ::testing::PointWise(::testing::FloatNear(1e-5), ))
+
+      lod = original->lod();
+    }
+
+    if (!lod.empty()) {
+      for (auto &item : lod) {
+        item.insert(item.begin(), 0);
+        std::partial_sum(item.begin(), item.end(), item.begin(),
+                         std::plus<size_t>());
+      }
+
+      ASSERT_THAT(tensor.lod, ::testing::ElementsAreArray(lod));
     }
   }
 }
