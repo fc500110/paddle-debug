@@ -7,20 +7,16 @@
 #include <paddle_inference_api.h>
 #include <algorithm>
 #include <boost/endian/conversion.hpp>
-#include <boost/make_unique.hpp>
 #include <functional>
 #include <iterator>
 
 namespace paddle {
 namespace debug {
 
-Reader::Reader(std::unique_ptr<std::istream> stream)
-    : stream_(std::move(stream)) {
+Reader::Reader(const std::string &filename)
+    : stream_(filename, std::ios::in | std::ios::binary) {
   Init();
 }
-
-Reader::Reader(const std::string &filename)
-    : Reader(boost::make_unique<std::fstream>(filename, std::ios::binary)) {}
 
 void Reader::Init() {
   size_t num_inputs{0};
@@ -66,19 +62,20 @@ bool Reader::NextBatch() {
     if (tensor.dtype == PaddleDType::FLOAT32) return sizeof(float);
   };
 
-  std::vector<std::vector<size_t>> lod;
+  // std::vector<std::vector<size_t>> lod;
+  std::vector<size_t> pos;
   for (int i = 0; i < batch_size_; i++) {
     for (int j = 0; j < inputs_.size(); j++) {
       // LoD
-      if (levels_[j] != 0) {
-        Get(&lod);
-        std::copy(lod.begin(), lod.end(), std::back_inserter(buffer[j].lod));
+      for (int k = 0; k < levels_[j]; k++) {
+        Get(&pos);
+        std::copy(pos.begin(), pos.end(), std::back_inserter(buffer[j].lod[k]));
       }
 
       // raw data
-      size_t length;
+      size_t length{0};
       Get(&length);
-      std::copy_n(std::istream_iterator<char>(*stream_),
+      std::copy_n(std::istream_iterator<char>(stream_),
                   length * get_data_byte(inputs_[j]),
                   std::back_inserter(buffer[j].data));
     }
@@ -109,12 +106,14 @@ bool Reader::NextBatch() {
                        std::plus<size_t>());
     }
   }
+
+  return true;
 }
 
 void GetPaddleDType(const std::string &name, PaddleDType *dtype) {
-  if (name == "FLOAT32") {
+  if (name == "float32") {
     *dtype = PaddleDType::FLOAT32;
-  } else if (name == "INT64") {
+  } else if (name == "int64") {
     *dtype = PaddleDType::INT64;
   } else {
     dtype = nullptr;

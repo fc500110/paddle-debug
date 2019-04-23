@@ -1,6 +1,12 @@
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <boost/filesystem.hpp>
+#include <fstream>
 #include <iostream>
+#include <random>
 #include <sstream>
+#include <thread>
+#include <vector>
 #include "debug_reader.h"
 
 int main(int argc, char *argv[]) {
@@ -10,45 +16,52 @@ int main(int argc, char *argv[]) {
 }
 
 template <typename T>
-void Write(const T &v, std::ostream *os) {
+void Write(T v, std::ostream *os) {
   auto bv = boost::endian::native_to_big(v);
   os->write(reinterpret_cast<char *>(&bv), sizeof(bv));
 }
 
 template <>
-void Write(const std::string &s, std::ostream *os) {
-  int size = s.size();
-  size = boost::endian::native_to_big(size);
-  os->write(reinterpret_cast<char *>(&size), sizeof(size));
-  os->write(&s.front(), size);
+void Write(const std::string &v, std::ostream *os) {
+  int size = v.size();
+  Write(size, os);
+  os->write(v.c_str(), size);
+}
+
+template <>
+void Write(std::string v, std::ostream *os) {
+  Write<const std::string &>(v, os);
+}
+
+template <>
+void Write(float v, std::ostream *os) {
+  auto bv = *reinterpret_cast<int32_t *>(&v);
+  bv = boost::endian::native_to_big(bv);
+  os->write(reinterpret_cast<char *>(&bv), sizeof(bv));
 }
 
 template <typename T>
-void Write(const std::vector<T> &v, std::ostream *os) {
+void Write(std::vector<T> v, std::ostream *os) {
   size_t size = v.size();
   size = boost::endian::native_to_big(size);
   os->write(reinterpret_cast<char *>(&size), sizeof(size));
-  for (const auto &i : v) {
-    auto bi = boost::endian::native_to_big(i);
-    os->write(reinterpret_cast<char *>(&bi), sizeof(bi));
-  }
+  std::for_each(v.begin(), v.end(), [os](T &item) { Write(item, os); });
 }
 
 template <typename T>
-void Write(const std::vector<std::vector<T>> &v, std::ostream *os) {
-  size_t size = v.size();
-  size = boost::endian::native_to_big(size);
-  os->write(reinterpret_cast<char *>(&size), sizeof(size));
+void Write(std::vector<std::vector<T>> v, std::ostream *os) {
+  // size_t size = v.size();
+  // Write(size, os);
   for (const auto &i : v) {
-    WriteVector(i, os);
+    Write(i, os);
   }
 }
 
 class Package {
  public:
   Package() {}
-  virtual ~Package() = 0;
-  virtual void Unpack(std::ostream *os) = 0;
+  virtual ~Package() {}
+  virtual void Pack(std::ostream *os) = 0;
 };
 
 class TensorInfo : public Package {
@@ -60,8 +73,12 @@ class TensorInfo : public Package {
     Write(name_, os);
     Write(shape_, os);
     Write(dtype_, os);
-    Write(lod_level_, os);
+    Write<int>(lod_level_, os);
   }
+
+  const std::string &name() const { return name_; }
+  const std::vector<int> &shape() const { return shape_; }
+  const std::string &dtype() const { return dtype_; }
 
  private:
   std::string name_;
@@ -75,11 +92,13 @@ class TensorData : public Package {
  public:
   TensorData(const std::vector<T> &data,
              const std::vector<std::vector<size_t>> &lod)
-      : data_(data), lod(lod_) {}
+      : data_(data), lod_(lod) {}
   void Pack(std::ostream *os) override {
     Write(data_, os);
-    Write(lod_, os);
+    if (!lod_.empty()) Write(lod_, os);
   }
+  const std::vector<T> &data() const { return data_; }
+  const std::vector<std::vector<size_t>> &lod() const { return lod_; }
 
  private:
   std::vector<T> data_;
@@ -91,8 +110,104 @@ class ReaderTest : public ::testing::Test {
   void SetUp();
   void TearDown();
 
- private:
-  std::stringstream ss_;
+  void ResetReader(int batch_size);
+
+ protected:
+  std::unique_ptr<paddle::debug::Reader> reader_;
+  std::vector<std::shared_ptr<Package>> data_;
+
+  size_t num_info_{0};
+
+  boost::filesystem::path file_;
+  std::string filename_;
 };
 
-void ReaderTest::SetUp() {}
+void ReaderTest::SetUp() {
+  // std::shared_ptr<Package> x_info = std::make_shared<TensorInfo>()
+  std::hash<std::thread::id> hasher;
+  std::string filename = "test_reader_tmp_file.bin." +
+                         std::to_string(hasher(std::this_thread::get_id()));
+  std::ofstream os(filename, std::ios::out | std::ios::binary);
+  file_ = boost::filesystem::current_path() / filename;
+
+  data_.emplace_back(
+      std::make_shared<TensorInfo>("x", std::vector<int>({-1, 3}), "int64", 0));
+  ++num_info_;
+  data_.emplace_back(std::make_shared<TensorInfo>(
+      "y", std::vector<int>({-1, 10}), "float32", 1));
+  ++num_info_;
+
+  std::random_device rd;
+  std::mt19937 engine(rd());
+
+  auto x_dist = std::uniform_int_distribution<int64_t>(0, 100);
+  std::vector<int64_t> x_data(3);
+  std::for_each(x_data.begin(), x_data.end(),
+                [&x_dist, &engine](int64_t &v) { v = x_dist(engine); });
+  data_.emplace_back(std::make_shared<TensorData<int64_t>>(
+      x_data, std::vector<std::vector<size_t>>()));
+
+  auto y_dist = std::uniform_real_distribution<float>(0, 1000);
+  std::vector<float> y_data(10);
+  std::for_each(y_data.begin(), y_data.end(),
+                [&y_dist, &engine](float &v) { v = y_dist(engine); });
+  data_.emplace_back(std::make_shared<TensorData<float>>(
+      y_data, std::vector<std::vector<size_t>>({{10}})));
+
+  Write(num_info_, &os);
+  for (const auto &data : data_) {
+    data->Pack(&os);
+  }
+}
+
+void ReaderTest::ResetReader(int batch_size) {
+  auto reader = std::unique_ptr<paddle::debug::Reader>(
+      new paddle::debug::Reader(file_.string()));
+  reader_ = std::move(reader);
+  reader_->SetBatchSize(batch_size);
+}
+
+TEST_F(ReaderTest, test_get_batch_data) {
+  ResetReader(1);
+
+  const auto &data = reader_->data();
+  reader_->NextBatch();
+
+  for (size_t i = 0; i < data.size(); i++) {
+    const auto &tensor = data[i];
+    auto info = std::dynamic_pointer_cast<TensorInfo>(data_[i]);
+    ASSERT_EQ(tensor.name, info->name());
+    ASSERT_THAT(tensor.shape, ::testing::ElementsAreArray(info->shape()));
+    paddle::PaddleDType dtype;
+    paddle::debug::GetPaddleDType(info->dtype(), &dtype);
+    ASSERT_EQ(tensor.dtype, dtype);
+  }
+
+  for (size_t i = 0; i < data.size(); i++) {
+    const auto &tensor = data[i];
+    if (tensor.dtype == paddle::PaddleDType::INT64) {
+      auto original =
+          std::dynamic_pointer_cast<TensorData<int64_t>>(data_[i + num_info_]);
+      auto *data = static_cast<int64_t *>(tensor.data.data());
+      auto size = tensor.data.length() / sizeof(int64_t);
+      ASSERT_THAT(original->data(), ::testing::ElementsAreArray(data, size));
+
+    } else if (tensor.dtype == paddle::PaddleDType::FLOAT32) {
+      auto original =
+          std::dynamic_pointer_cast<TensorData<float>>(data_[i + num_info_]);
+      auto *data = static_cast<float *>(tensor.data.data());
+      auto size = tensor.data.length() / sizeof(float);
+      for (int j = 0; j < size; j++) {
+        ASSERT_NEAR(data[j], original->data()[j], 1e-5);
+      }
+      // ASSERT_THAT(original->data(), ::testing::ElementsAreArray(data, size));
+      // EXPECT_THAT(origin->data(),
+      // ::testing::PointWise(::testing::FloatNear(1e-5), ))
+    }
+  }
+}
+
+void ReaderTest::TearDown() {
+  // remote temp file
+  boost::filesystem::remove(file_);
+}
