@@ -36,9 +36,12 @@ void Write(std::string v, std::ostream *os) {
 
 template <>
 void Write(float v, std::ostream *os) {
-  auto bv = *reinterpret_cast<int32_t *>(&v);
-  bv = boost::endian::native_to_big(bv);
-  os->write(reinterpret_cast<char *>(&bv), sizeof(bv));
+  char *c = reinterpret_cast<char *>(&v);
+  if (boost::endian::order::native == boost::endian::order::little) {
+    std::swap(c[0], c[3]);
+    std::swap(c[1], c[2]);
+  }
+  os->write(c, sizeof(float));
 }
 
 template <typename T>
@@ -51,8 +54,6 @@ void Write(std::vector<T> v, std::ostream *os) {
 
 template <typename T>
 void Write(std::vector<std::vector<T>> v, std::ostream *os) {
-  // size_t size = v.size();
-  // Write(size, os);
   for (const auto &i : v) {
     Write(i, os);
   }
@@ -200,8 +201,11 @@ TEST_F(ReaderTest, test_get_batch_data) {
       auto *data = static_cast<float *>(tensor.data.data());
       auto size = tensor.data.length() / sizeof(float);
       for (int j = 0; j < size; j++) {
-        ASSERT_NEAR(data[j], original->data()[j], 1e-5);
+        EXPECT_FLOAT_EQ(data[j], original->data()[j]);
+        // std::cout << "========[" << j << "], [" << data[j] << "], ["
+        //          << original->data()[j] << "]\n";
       }
+      std::cout << std::endl;
 
       lod = original->lod();
     }
