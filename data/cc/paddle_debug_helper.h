@@ -1,60 +1,67 @@
+// Copyright 2019 Baidu Inc. All Rights Reserved.
+// Author: Change Fu (fuchang01@baidu.com)
+//
+// Paddle inference debug helper
+
 #pragma once
 
+#include <arpa/inet.h>
 #include <algorithm>
-#include <boost/endian/conversion.hpp>
 #include <istream>
+#include <string>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 namespace paddle {
 namespace debug {
 
-using boost::endian::big_to_native;
-using boost::endian::big_to_native_inplace;
+class Endian {
+ private:
+  Endian() = delete;
+  static constexpr uint32_t uint32_v_{0x01020304};
+  static constexpr uint8_t magic_v_ = static_cast<const uint8_t &>(uint32_v_);
+  static constexpr bool is_big_ = magic_v_ == 0x01;
+  static constexpr bool is_little_ = magic_v_ == 0x04;
 
-template <typename Iter>
-void transform_big_to_native(Iter begin, Iter end) {
-  using value_t = typename std::iterator_traits<Iter>::value_type;
-  std::for_each(begin, end, &big_to_native_inplace<value_t>);
-}
+ public:
+  enum class Order { kBig, kLittle, kNative = is_big_ ? kBig : kLittle };
 
-template <>
-void transform_big_to_native(float *begin, float *end) {
-  constexpr bool is_big_endian =
-      (boost::endian::order::native == boost::endian::order::big);
-  if (is_big_endian) return;
-
-  auto float_conv = [](float &v) {
+  template <typename T>
+  static void Reverse(T &v) {
     union {
-      float value;
-      char c[sizeof(float)];
+      T value;
+      char c[sizeof(T)];
     } tmp;
     tmp.value = v;
-    std::swap(tmp.c[0], tmp.c[3]);
-    std::swap(tmp.c[1], tmp.c[2]);
-    // std::reverse(std::begin(tmp.c), std::end(tmp.c));
+    std::reverse(tmp.c, tmp.c + sizeof(T));
     v = tmp.value;
-  };
+  }
 
-  // int32_t *i_begin = reinterpret_cast<int32_t *>(begin);
-  // int32_t *i_end = reinterpret_cast<int32_t *>(end);
-  std::for_each(begin, end, float_conv);
-}
+  template <typename T>
+  static void BigToNativeInplace(T &v) {
+    if (is_big_) return;
+    Reverse(v);
+  }
+
+  template <typename T>
+  static void NativeToBigInplace(T &v) {
+    if (is_big_) return;
+    Reverse(v);
+  }
+};
 
 template <typename T>
 void Read(std::istream *stream, T *data) {
   stream->read(reinterpret_cast<char *>(data), sizeof(T));
-  *data = big_to_native(*data);
+  Endian::BigToNativeInplace(*data);
 }
 
 template <>
 void Read(std::istream *stream, float *data) {
   char *buffer = reinterpret_cast<char *>(data);
   stream->read(buffer, sizeof(float));
-  /*if (boost::endian::order::native == boost::endian::order::big) {
-    std::swap(buffer[0], buffer[3]);
-    std::swap(buffer[1], buffer[2]);
-  }*/
-};
+}
 
 template <>
 void Read(std::istream *stream, std::string *data) {

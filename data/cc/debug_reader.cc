@@ -6,7 +6,6 @@
 #include "debug_reader.h"
 #include <paddle_inference_api.h>
 #include <algorithm>
-#include <boost/endian/conversion.hpp>
 #include <functional>
 #include <iterator>
 
@@ -92,10 +91,12 @@ bool Reader::NextBatch() {
     auto size = tensor->data.length() / get_data_byte(inputs_[i]);
     if (tensor->dtype == PaddleDType::FLOAT32) {
       auto *data = static_cast<float *>(tensor->data.data());
-      transform_big_to_native(data, data + size);
+      std::for_each(data, data + size, &Endian::BigToNativeInplace<float>);
+      // transform_big_to_native(data, data + size);
     } else if (tensor->dtype == PaddleDType::INT64) {
       auto *data = static_cast<int64_t *>(tensor->data.data());
-      transform_big_to_native(data, data + size);
+      std::for_each(data, data + size, &Endian::BigToNativeInplace<int64_t>);
+      // transform_big_to_native(data, data + size);
     }
 
     for (auto &item : data_buf.lod) {

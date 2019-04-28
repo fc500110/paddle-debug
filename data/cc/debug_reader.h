@@ -7,12 +7,11 @@
 
 #include <paddle_inference_api.h>
 #include <algorithm>
-#include <boost/endian/conversion.hpp>
 #include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
-#include "debug_helper.h"
+#include "paddle_debug_helper.h"
 
 namespace paddle {
 namespace debug {
